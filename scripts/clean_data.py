@@ -1,8 +1,8 @@
 import pandas as pd
 import os
 
-RAW_PATH = "/home/utsab/Desktop/clickstream/data/raw/online_shoppers_intention.csv"
-CLEAN_PATH = "/home/utsab/Desktop/clickstream/data/raw/cleaned_data.csv"
+RAW_PATH = r"D:\clickstream-intent-dashboard\data\online_shoppers_intention.csv"
+CLEAN_PATH = r"D:\clickstream-intent-dashboard\data\cleaned_data.csv"
 
 def load_and_clean():
     print("📥 Loading raw CSV...")

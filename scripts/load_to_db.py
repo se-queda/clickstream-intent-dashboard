@@ -3,7 +3,7 @@ import psycopg2
 from psycopg2.extras import execute_values
 
 # 📂 Path to your cleaned CSV
-CSV_PATH = "../data/raw/cleaned_data.csv"
+CSV_PATH = "D:\clickstream-intent-dashboard\data\cleaned_data.csv"
 
 # 🛠️ PostgreSQL credentials
 DB_NAME = "clickstreamdb"

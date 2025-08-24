@@ -1,0 +1,21 @@
+DROP FUNCTION IF EXISTS clickstream.get_os_performance(TEXT[], TEXT[], BOOLEAN, INT[], INT[], INT[], INT[], TEXT[]);
+CREATE OR REPLACE FUNCTION clickstream.get_os_performance(
+    p_months TEXT[] DEFAULT NULL, p_visitor_types TEXT[] DEFAULT NULL, p_weekend BOOLEAN DEFAULT NULL,
+    p_browsers INT[] DEFAULT NULL, p_os INT[] DEFAULT NULL, p_regions INT[] DEFAULT NULL, p_traffics INT[] DEFAULT NULL, p_page_types TEXT[] DEFAULT NULL
+)
+RETURNS TABLE (name TEXT, total_sessions BIGINT, conversion_rate NUMERIC) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        dos.name::TEXT,
+        count(s.operatingsystems)::BIGINT AS total_sessions,
+        ROUND(100.0 * sum(CASE WHEN s.revenue THEN 1 ELSE 0 END) / NULLIF(count(s.operatingsystems), 0), 2)
+    FROM clickstream.shopper_data s JOIN clickstream.dim_os dos ON s.operatingsystems = dos.id
+    WHERE (p_months IS NULL OR s.month = ANY(p_months)) AND (p_visitor_types IS NULL OR s.visitortype = ANY(p_visitor_types)) AND
+          (p_weekend IS NULL OR s.weekend = p_weekend) AND (p_browsers IS NULL OR s.browser = ANY(p_browsers)) AND
+          (p_os IS NULL OR s.operatingsystems = ANY(p_os)) AND (p_regions IS NULL OR s.region = ANY(p_regions)) AND
+          (p_traffics IS NULL OR s.traffictype = ANY(p_traffics)) AND
+          (p_page_types IS NULL OR (('Administrative' = ANY(p_page_types) AND s.administrative > 0) OR ('Informational' = ANY(p_page_types) AND s.informational > 0) OR ('Product Related' = ANY(p_page_types) AND s.productrelated > 0)))
+    GROUP BY dos.name ORDER BY total_sessions DESC;
+END;
+$$ LANGUAGE plpgsql;

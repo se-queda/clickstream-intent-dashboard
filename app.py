@@ -3,381 +3,295 @@ import pandas as pd
 import plotly.express as px
 from sqlalchemy import create_engine, text
 
-st.set_page_config(page_title="Clickstream Purchase Intent Dashboard", page_icon="🛒", layout="wide")
-
-# -----------------------------
-# DB CONNECTION
-# -----------------------------
-def get_engine():
-    s = st.secrets["postgres"]
-    url = f'postgresql+psycopg2://{s["user"]}:{s["password"]}@{s["host"]}:{s["port"]}/{s["dbname"]}'
-    return create_engine(url, pool_pre_ping=True)
-
-def df_query(sql: str, params: dict | None = None) -> pd.DataFrame:
-    with get_engine().begin() as con:
-        return pd.read_sql(text(sql), con, params=params or {})
-
-# -----------------------------
-# DISTINCTS FROM VIEWS (SQL-first)
-# -----------------------------
-@st.cache_data(ttl=300, show_spinner=False)
-def load_distincts_from_views():
-    d = {}
-    with get_engine().begin() as con:
-        # months
-        d["month"] = pd.read_sql(text("SELECT DISTINCT month FROM clickstream.monthwise_revenue ORDER BY month"), con)["month"].tolist()
-        # visitor types
-        d["visitortype"] = pd.read_sql(text("SELECT DISTINCT visitortype FROM clickstream.conversion_rates ORDER BY visitortype"), con)["visitortype"].tolist()
-        # weekend exists in multiple views; we'll just set labels here
-        d["weekend_labels"] = ["All", "Weekday only", "Weekend only"]
-        # browser names (as exposed by your view)
-        d["browser"] = pd.read_sql(text("SELECT DISTINCT browser FROM clickstream.browser_usage ORDER BY browser"), con)["browser"].tolist()
-        # traffic types (labels as exposed by your view)
-        d["traffictype"] = pd.read_sql(text("SELECT DISTINCT traffictype FROM clickstream.traffic_type_performance ORDER BY traffictype"), con)["traffictype"].tolist()
-        # regions (labels as exposed by your view)
-        d["region"] = pd.read_sql(text("SELECT DISTINCT region FROM clickstream.region_performance ORDER BY region"), con)["region"].tolist()
-        d["os"] = pd.read_sql(text("SELECT DISTINCT os_name FROM clickstream.os_performance ORDER BY os_name"),con)["os_name"].tolist()
-    return d
-
-# -----------------------------
-# UI — FILTERS
-# -----------------------------
-st.sidebar.title("Filters (apply where relevant)")
-distincts = load_distincts_from_views()
-
-month_f      = st.sidebar.multiselect("Month (Monthwise)", options=distincts["month"])
-visit_f      = st.sidebar.multiselect("Visitor Type (VisitorType × Weekend)", options=distincts["visitortype"])
-weekend_opt  = st.sidebar.selectbox("Weekend (Overview/VisitorType)", options=distincts["weekend_labels"], index=0)
-
-browser_f    = st.sidebar.multiselect("Browser (Channels)", options=distincts["browser"])
-traffic_f    = st.sidebar.multiselect("Traffic Type (Channels)", options=distincts["traffictype"])
-region_f     = st.sidebar.multiselect("Region (Geography)", options=distincts["region"])
-
-if st.sidebar.button("🔄 Reset filters"):
-    for k in list(st.session_state.keys()):
-        del st.session_state[k]
-    st.rerun()
-
-# -----------------------------
-# KPI — executive_summary
-# -----------------------------
-st.title("🛒 Clickstream Purchase Intent Dashboard")
-st.caption("SQL‑first: All metrics come from PostgreSQL *views*; Streamlit just visualizes them.")
-
-exec_df = df_query("SELECT total_sessions, total_conversions, overall_conversion_rate FROM clickstream.executive_summary")
-if exec_df.empty:
-    st.error("Executive summary returned no data.")
-    st.stop()
-
-k1, k2, k3 = st.columns(3)
-k1.metric("Total Sessions", f"{int(exec_df.loc[0,'total_sessions']):,}")
-k2.metric("Total Conversions", f"{int(exec_df.loc[0,'total_conversions']):,}")
-k3.metric("Overall Conversion Rate", f"{float(exec_df.loc[0,'overall_conversion_rate']):.2f}%")
-
-st.divider()
-dbg = st.expander("🛠 SQL Debug (last queries)")
-
-# -----------------------------
-# TABS
-# -----------------------------
-tab_overview, tab_channels, tab_engagement, tab_geo = st.tabs(
-    ["Overview", "Channels", "Engagement", "Geography"]
+st.set_page_config(
+    page_title="Clickstream Purchase Intent Dashboard",
+    page_icon="🛒",
+    layout="wide",
 )
 
-# ================== OVERVIEW ==================
-with tab_overview:
-    c1, c2 = st.columns(2, gap="large")
-
-    # Weekday vs Weekend
-    wvw_where = ""
-    if weekend_opt == "Weekday only":
-        wvw_where = "WHERE weekend = false"
-    elif weekend_opt == "Weekend only":
-        wvw_where = "WHERE weekend = true"
-
-    sql_wvw = f"""
-        SELECT weekend, total_sessions, conversions, conversion_rate
-        FROM clickstream.weekday_vs_weekend
-        {wvw_where}
-        ORDER BY weekend
-    """
-    wvw = df_query(sql_wvw)
-    with dbg: st.code(sql_wvw, language="sql")
-
-    if not wvw.empty:
-        wvw["weekend"] = wvw["weekend"].map({True: "Weekend", False: "Weekday"})
-        with c1:
-            st.subheader("Weekday vs Weekend")
-            fig = px.bar(wvw, x="weekend", y="conversion_rate", text="conversion_rate",
-                         labels={"weekend": "", "conversion_rate": "Conversion Rate (%)"})
-            fig.update_traces(texttemplate="%{text:.2f}%")
-            st.plotly_chart(fig, use_container_width=True)
-
-    # Monthwise Conversion Rate
-    m_params = {}
-    m_where = ""
-    if month_f:
-        m_where = "WHERE month = ANY(:months)"
-        m_params["months"] = month_f
-
-    sql_month = f"""
-        SELECT month, total_sessions, conversions, conversion_rate
-        FROM clickstream.monthwise_revenue
-        {m_where}
-        ORDER BY month
-    """
-    mrev = df_query(sql_month, m_params)
-    with dbg:
-        st.code(sql_month, language="sql")
-        if m_params: st.json(m_params)
-
-    with c2:
-        st.subheader("Monthwise Conversion Rate")
-        if not mrev.empty:
-            fig = px.line(mrev, x="month", y="conversion_rate", markers=True,
-                          labels={"month": "Month", "conversion_rate": "Conversion Rate (%)"})
-            st.plotly_chart(fig, use_container_width=True)
-
-    # Visitor Type × Weekend
-    v_where_parts, v_params = [], {}
-    if visit_f:
-        v_where_parts.append("visitortype = ANY(:visit)")
-        v_params["visit"] = visit_f
-    if weekend_opt == "Weekday only":
-        v_where_parts.append("weekend = false")
-    elif weekend_opt == "Weekend only":
-        v_where_parts.append("weekend = true")
-    v_where = "WHERE " + " AND ".join(v_where_parts) if v_where_parts else ""
-
-    sql_conv = f"""
-        SELECT visitortype, weekend, conversion_rate
-        FROM clickstream.conversion_rates
-        {v_where}
-        ORDER BY visitortype, weekend
-    """
-    vtw = df_query(sql_conv, v_params)
-    with dbg:
-        st.code(sql_conv, language="sql")
-        if v_params: st.json(v_params)
-
-    st.subheader("Visitor Type × Weekend")
-    if not vtw.empty:
-        vtw["weekend_label"] = vtw["weekend"].map({True: "Weekend", False: "Weekday"})
-        fig = px.bar(vtw, x="visitortype", y="conversion_rate", color="weekend_label",
-                     barmode="group",
-                     labels={"visitortype": "Visitor Type", "conversion_rate": "Conversion Rate (%)", "weekend_label": ""},
-                     text="conversion_rate")
-        fig.update_traces(texttemplate="%{text:.2f}%")
-        st.plotly_chart(fig, use_container_width=True)
-
-    # Special Day Effect
-    st.subheader("Special Day Effect")
-    sql_sp = "SELECT specialday, total_sessions, conversions, conversion_rate FROM clickstream.special_day_effect ORDER BY specialday"
-    sp = df_query(sql_sp)
-    with dbg: st.code(sql_sp, language="sql")
-    if not sp.empty:
-        fig = px.bar(sp, x="specialday", y="conversion_rate",
-                     labels={"specialday": "Special Day Score", "conversion_rate": "Conversion Rate (%)"},
-                     text="conversion_rate")
-        fig.update_traces(texttemplate="%{text:.2f}%")
-        st.plotly_chart(fig, use_container_width=True)
-
-# ================== CHANNELS ==================
-with tab_channels:
-    c3, c4 = st.columns(2, gap="large")
-
-    # Browser Usage
-    b_where, b_params = "", {}
-    if browser_f:
-        b_where = "WHERE browser = ANY(:browsers)"
-        b_params["browsers"] = browser_f
-
-    sql_brows = f"""
-        SELECT browser, total_sessions, conversions, conversion_rate
-        FROM clickstream.browser_usage
-        {b_where}
-        ORDER BY total_sessions DESC
-    """
-    brows = df_query(sql_brows, b_params)
-    with dbg:
-        st.code(sql_brows, language="sql")
-        if b_params: st.json(b_params)
-
-    with c3:
-        st.subheader("Browser Share (by Sessions)")
-        if not brows.empty:
-            fig = px.pie(brows, names="browser", values="total_sessions", hole=0.45)
-            st.plotly_chart(fig, use_container_width=True)
-
-            fig = px.bar(brows, x="browser", y="conversion_rate",
-                         labels={"browser": "Browser", "conversion_rate": "Conversion Rate (%)"},
-                         text="conversion_rate")
-            fig.update_traces(texttemplate="%{text:.2f}%")
-            st.plotly_chart(fig, use_container_width=True)
-
-    # Traffic Type Performance
-    t_where, t_params = "", {}
-    if traffic_f:
-        t_where = "WHERE traffictype = ANY(:tt)"
-        t_params["tt"] = traffic_f
-
-    sql_traf = f"""
-        SELECT traffictype, total_sessions, conversions, conversion_rate
-        FROM clickstream.traffic_type_performance
-        {t_where}
-        ORDER BY conversion_rate DESC, total_sessions DESC
-    """
-    traf = df_query(sql_traf, t_params)
-    with dbg:
-        st.code(sql_traf, language="sql")
-        if t_params: st.json(t_params)
-
-    with c4:
-        st.subheader("Traffic Type – Conversion Rate")
-        if not traf.empty:
-            fig = px.bar(traf, y="traffictype", x="conversion_rate", orientation="h",
-                         labels={"traffictype": "Traffic Type", "conversion_rate": "Conversion Rate (%)"},
-                         text="conversion_rate")
-            fig.update_traces(texttemplate="%{text:.2f}%")
-            st.plotly_chart(fig, use_container_width=True)
-        # ----- Operating System Performance (optional) -----
-    os_where, os_params = "", {}
-    if 'os_f' not in st.session_state:
-        # create a persistent key if needed
-        st.session_state['os_f'] = []
-    os_f = st.sidebar.multiselect("Operating System (Channels)", options=distincts.get("os", []), key='os_f')
-
-    if os_f:
-        os_where = "WHERE os_name = ANY(:oses)"
-        os_params["oses"] = os_f
-
-    sql_os = f"""
-        SELECT os_name, total_sessions, conversions, conversion_rate
-        FROM clickstream.os_performance
-        {os_where}
-        ORDER BY total_sessions DESC
-    """
-    osdf = df_query(sql_os, os_params)
-    with dbg:
-        st.code(sql_os, language="sql")
-        if os_params: st.json(os_params)
-
-    st.subheader("Operating System – Sessions & Conversion")
-    if not osdf.empty:
-        os_c1, os_c2 = st.columns(2, gap="large")
-        with os_c1:
-            fig = px.pie(osdf, names="os_name", values="total_sessions", hole=0.45)
-            st.plotly_chart(fig, use_container_width=True)
-        with os_c2:
-            fig = px.bar(osdf, x="os_name", y="conversion_rate",
-                         labels={"os_name":"OS","conversion_rate":"Conversion Rate (%)"},
-                         text="conversion_rate")
-            fig.update_traces(texttemplate="%{text:.2f}%")
-            st.plotly_chart(fig, use_container_width=True)
-
-            
-
-
-# ================== ENGAGEMENT ==================
-with tab_engagement:
-    st.subheader("Page Type Performance (Avg pages & time by purchase outcome)")
-
-    # Try tidy view first; fall back to wide view
-    tried_sql = []
-    sql_page_tidy = "SELECT revenue, page_type, avg_pages, avg_seconds FROM clickstream.page_type_performance_tidy ORDER BY revenue DESC, page_type"
-    tried_sql.append(sql_page_tidy)
+# -----------------------------
+# DB CONNECTION & SETUP
+# -----------------------------
+@st.cache_resource
+def get_engine():
+    """Creates a SQLAlchemy engine from Streamlit secrets."""
     try:
-        pt = df_query(sql_page_tidy)
-        used_tidy = not pt.empty
-    except Exception:
-        used_tidy = False
+        s = st.secrets["postgres"]
+        url = f'postgresql+psycopg2://{s["user"]}:{s["password"]}@{s["host"]}:{s["port"]}/{s["dbname"]}'
+        return create_engine(url, pool_pre_ping=True)
+    except Exception as e:
+        st.error(f"Failed to create database engine. Please check your secrets.toml file. Error: {e}")
+        return None
 
-    if not used_tidy:
-        sql_page_wide = """
-            SELECT revenue,
-                   avg_admin_pages,    avg_info_pages,    avg_product_pages,
-                   avg_admin_duration, avg_info_duration, avg_product_duration
-            FROM clickstream.page_type_performance
-            ORDER BY revenue DESC
-        """
-        tried_sql.append(sql_page_wide)
-        base = df_query(sql_page_wide)
+engine = get_engine()
 
-        # Reshape wide -> tidy so charts are consistent
-        pages = base.rename(columns={
-            "avg_admin_pages": "administrative",
-            "avg_info_pages": "informational",
-            "avg_product_pages": "productrelated",
-        }).melt(id_vars="revenue",
-                value_vars=["administrative","informational","productrelated"],
-                var_name="page_type", value_name="avg_pages")
+# -----------------------------
+# DIMENSION & FILTER VALUE LOADING
+# -----------------------------
+@st.cache_data(ttl=300, show_spinner="Loading dimension labels...")
+def load_dims():
+    """Loads friendly names for dimension IDs from the database."""
+    if engine is None: return {}
+    try:
+        with engine.begin() as con:
+            db = pd.read_sql(text("SELECT id, name FROM clickstream.dim_browser ORDER BY id"), con)
+            dos = pd.read_sql(text("SELECT id, name FROM clickstream.dim_os ORDER BY id"), con)
+            dr  = pd.read_sql(text("SELECT id, name FROM clickstream.dim_region ORDER BY id"), con)
+            dt  = pd.read_sql(text("SELECT id, name FROM clickstream.dim_traffic ORDER BY id"), con)
+        return {
+            "browser": dict(zip(db["id"],  db["name"])),
+            "os":      dict(zip(dos["id"], dos["name"])),
+            "region":  dict(zip(dr["id"],  dr["name"])),
+            "traffic": dict(zip(dt["id"],  dt["name"])),
+        }
+    except Exception as e:
+        st.error(f"Failed to load dimension data. Error: {e}")
+        return {}
 
-        dur = base.rename(columns={
-            "avg_admin_duration": "administrative",
-            "avg_info_duration": "informational",
-            "avg_product_duration": "productrelated",
-        }).melt(id_vars="revenue",
-                value_vars=["administrative","informational","productrelated"],
-                var_name="page_type", value_name="avg_seconds")
+@st.cache_data(show_spinner="Loading filter options...", ttl=300)
+def load_distincts():
+    """Loads distinct values for sidebar filters from the base data table."""
+    if engine is None: return {}
+    opts = {}
+    try:
+        with engine.begin() as con:
+            for col in ["month", "visitortype", "weekend", "browser", "operatingsystems", "region", "traffictype"]:
+                q = text(f"SELECT DISTINCT {col} AS v FROM clickstream.shopper_data ORDER BY 1;")
+                opts[col] = pd.read_sql(q, con)["v"].tolist()
+    except Exception as e:
+        st.error(f"Failed to load distinct filter values. Error: {e}")
+    return opts
 
-        pt = pages.merge(dur, on=["revenue","page_type"], how="inner")
-        used_tidy = True  # we now have tidy data
+# -----------------------------
+# SIDEBAR FILTERS
+# -----------------------------
+st.sidebar.title("Filters")
+dims = load_dims()
+distincts = load_distincts()
 
-    # Show the queries we attempted
-    with dbg:
-        for s in tried_sql:
-            st.code(s.strip(), language="sql")
+if not dims or not distincts:
+    st.sidebar.error("Could not load filter data from the database.")
+    st.stop()
 
-    if pt.empty:
-        st.info("Page type performance view returned no data.")
-    else:
-        pt["revenue_label"] = pt["revenue"].map({True: "Purchased", False: "No Purchase"})
-        all_page_types = sorted(pt["page_type"].unique().tolist())
-        all_outcomes   = ["Purchased", "No Purchase"]
+def pretty_multiselect(label, options, id_to_name, key=None):
+    return st.multiselect(
+        label,
+        options,
+        format_func=lambda x: id_to_name.get(x, str(x)),
+        key=key,
+    )
 
-        fcol1, fcol2, fcol3 = st.columns([1,1,1])
-        with fcol1:
-            selected_pages = st.multiselect("Page Type", options=all_page_types, default=all_page_types)
-        with fcol2:
-            selected_outcomes = st.multiselect("Outcome", options=all_outcomes, default=all_outcomes)
-        with fcol3:
-            metric_choice = st.radio("Metric", ["Avg. Pages", "Avg. Seconds"], horizontal=True)
+# --- Filter Widgets with Scope Switches ---
+filter_config = {}
 
-        fpt = pt[pt["page_type"].isin(selected_pages)]
-        fpt = fpt[fpt["revenue_label"].isin(selected_outcomes)]
+with st.sidebar.expander("Date & Visitor Filters", expanded=True):
+    filter_config['month'] = {'value': st.multiselect("Month", distincts.get("month", []))}
+    filter_config['month']['scope'] = st.radio("Apply Month to:", ["All", "KPIs", "Graph"], key="month_scope", horizontal=True)
+    st.markdown("---")
+    filter_config['visitor'] = {'value': st.multiselect("Visitor Type", distincts.get("visitortype", []))}
+    filter_config['visitor']['scope'] = st.radio("Apply Visitor to:", ["All", "KPIs", "Graph"], key="visitor_scope", horizontal=True)
+    st.markdown("---")
+    weekend_map  = {"All": None, "Weekday only": False, "Weekend only": True}
+    weekend_choice = st.selectbox("Weekend", list(weekend_map.keys()), index=0)
+    filter_config['weekend'] = {'value': weekend_map[weekend_choice]}
+    filter_config['weekend']['scope'] = st.radio("Apply Weekend to:", ["All", "KPIs", "Graph"], key="weekend_scope", horizontal=True)
 
-        c5, c6 = st.columns(2, gap="large")
-        if metric_choice == "Avg. Pages":
-            with c5:
-                st.caption("Average number of pages visited by outcome")
-                fig = px.bar(
-                    fpt, x="page_type", y="avg_pages", color="revenue_label",
-                    barmode="group",
-                    labels={"page_type":"Page Type","avg_pages":"Avg. Pages","revenue_label":""},
-                    text="avg_pages"
-                )
-                fig.update_traces(texttemplate="%{text:.2f}")
-                st.plotly_chart(fig, use_container_width=True)
+with st.sidebar.expander("Technical Filters"):
+    filter_config['browser'] = {'value': pretty_multiselect("Browser", distincts.get("browser", []), dims["browser"], key="browser")}
+    filter_config['browser']['scope'] = st.radio("Apply Browser to:", ["All", "KPIs", "Graph"], key="browser_scope", horizontal=True)
+    st.markdown("---")
+    filter_config['os'] = {'value': pretty_multiselect("Operating System", distincts.get("operatingsystems", []), dims["os"], key="os")}
+    filter_config['os']['scope'] = st.radio("Apply OS to:", ["All", "KPIs", "Graph"], key="os_scope", horizontal=True)
+
+with st.sidebar.expander("Source & Content Filters"):
+    filter_config['region'] = {'value': pretty_multiselect("Region", distincts.get("region", []), dims["region"], key="region")}
+    filter_config['region']['scope'] = st.radio("Apply Region to:", ["All", "KPIs", "Graph"], key="region_scope", horizontal=True)
+    st.markdown("---")
+    filter_config['traffic'] = {'value': pretty_multiselect("Traffic Type", distincts.get("traffictype", []), dims["traffic"], key="traffic")}
+    filter_config['traffic']['scope'] = st.radio("Apply Traffic to:", ["All", "KPIs", "Graph"], key="traffic_scope", horizontal=True)
+    st.markdown("---")
+    filter_config['page_type'] = {'value': st.multiselect("Page Type", ["Administrative", "Informational", "Product Related"])}
+    filter_config['page_type']['scope'] = st.radio("Apply Page Type to:", ["All", "KPIs", "Graph"], key="page_type_scope", horizontal=True)
+
+# -----------------------------
+# DYNAMIC PARAMETER BUILDER
+# -----------------------------
+def build_params(target_graph=None):
+    params = {}
+    param_map = {
+        'month': 'p_months', 'visitor': 'p_visitor_types', 'weekend': 'p_weekend',
+        'browser': 'p_browsers', 'os': 'p_os', 'region': 'p_regions',
+        'traffic': 'p_traffics', 'page_type': 'p_page_types'
+    }
+
+    for name, config in filter_config.items():
+        param_name = param_map[name]
+        is_active = False
+        if config['value'] or (name == 'weekend' and config['value'] is not None):
+            if config['scope'] == 'All':
+                is_active = True
+            elif config['scope'] == 'KPIs' and target_graph == 'kpi':
+                is_active = True
+            elif config['scope'] == 'Graph' and target_graph == name:
+                is_active = True
+        
+        params[param_name] = config['value'] if is_active else None
+    return params
+
+# -----------------------------
+# DATA LOADING FUNCTION
+# -----------------------------
+@st.cache_data(show_spinner="Loading data...", ttl=300)
+def fetch_query(query, query_params):
+    try:
+        with engine.begin() as con:
+            return pd.read_sql(text(query), con, params=query_params)
+    except Exception as e:
+        st.error(f"Database query failed. Error: {e}")
+        return pd.DataFrame()
+
+# -----------------------------
+# HEADER + KPIs
+# -----------------------------
+st.title("🛒 Clickstream Purchase Intent Dashboard")
+st.caption("Live from PostgreSQL Functions · filter in the sidebar to slice the insights.")
+
+kpi_params = build_params(target_graph='kpi')
+kpi_query = """
+    SELECT
+        count(*) AS total_sessions,
+        sum(CASE WHEN revenue THEN 1 ELSE 0 END) AS total_conversions,
+        ROUND(100.0 * sum(CASE WHEN revenue THEN 1 ELSE 0 END) / NULLIF(count(*), 0), 2) AS overall_conversion_rate
+    FROM clickstream.shopper_data
+    WHERE (:p_months IS NULL OR month = ANY(:p_months))
+      AND (:p_visitor_types IS NULL OR visitortype = ANY(:p_visitor_types))
+      AND (:p_weekend IS NULL OR weekend = :p_weekend)
+      AND (:p_browsers IS NULL OR browser = ANY(:p_browsers))
+      AND (:p_os IS NULL OR operatingsystems = ANY(:p_os))
+      AND (:p_regions IS NULL OR region = ANY(:p_regions))
+      AND (:p_traffics IS NULL OR traffictype = ANY(:p_traffics))
+      AND (:p_page_types IS NULL OR (('Administrative' = ANY(:p_page_types) AND administrative > 0) OR ('Informational' = ANY(:p_page_types) AND informational > 0) OR ('Product Related' = ANY(:p_page_types) AND productrelated > 0)))
+"""
+kpis = fetch_query(kpi_query, kpi_params)
+
+total_sessions = int(kpis.iloc[0]['total_sessions']) if not kpis.empty else 0
+total_conversions = int(kpis.iloc[0]['total_conversions']) if not kpis.empty else 0
+conv_rate = kpis.iloc[0]['overall_conversion_rate'] if not kpis.empty else 0.0
+
+k1, k2, k3 = st.columns(3)
+k1.metric("Total Sessions", f"{total_sessions:,}")
+k2.metric("Total Conversions", f"{total_conversions:,}")
+k3.metric("Overall Conversion Rate", f"{conv_rate or 0:.2f}%")
+
+st.divider()
+
+if total_sessions == 0 and any(p for p in kpi_params.values()):
+    st.warning("No data for the current KPI filters. Try widening your selection.")
+    # We don't stop here, as graph-specific filters might still yield data
+
+# -----------------------------
+# CHARTS (Calling DB Functions)
+# -----------------------------
+func_call_str = "SELECT * FROM clickstream.%(func_name)s(:p_months, :p_visitor_types, :p_weekend, :p_browsers, :p_os, :p_regions, :p_traffics, :p_page_types)"
+
+c1, c2 = st.columns(2, gap="large")
+
+with c1:
+    st.subheader("Weekday vs Weekend")
+    wvw_params = build_params(target_graph='weekend')
+    wvw_df = fetch_query(func_call_str % {'func_name': 'get_weekday_vs_weekend'}, wvw_params)
+    wvw_df = wvw_df.replace({"weekend": {True: "Weekend", False: "Weekday"}})
+    if not wvw_df.empty:
+        fig = px.bar(wvw_df, x="weekend", y="conversion_rate", text="conversion_rate", labels={"conversion_rate":"Conversion Rate (%)","weekend":""})
+        fig.update_traces(texttemplate="%{text:.2f}%")
+        st.plotly_chart(fig, use_container_width=True)
+
+with c2:
+    st.subheader("Monthwise Conversion Rate")
+    mrev_params = build_params(target_graph='month')
+    mrev_df = fetch_query(func_call_str % {'func_name': 'get_monthwise_revenue'}, mrev_params)
+    if not mrev_df.empty:
+        fig = px.line(mrev_df, x="month", y="conversion_rate", markers=True, labels={"conversion_rate":"Conversion Rate (%)","month":"Month"})
+        st.plotly_chart(fig, use_container_width=True)
+
+c3, c4 = st.columns(2, gap="large")
+
+brows_params = build_params(target_graph='browser')
+brows_df = fetch_query(func_call_str % {'func_name': 'get_browser_performance'}, brows_params)
+with c3:
+    st.subheader("Browser Share (by Sessions)")
+    if not brows_df.empty:
+        fig = px.pie(brows_df, names="name", values="total_sessions", hole=0.45)
+        st.plotly_chart(fig, use_container_width=True)
+with c4:
+    st.subheader("Browser Conversion Rate")
+    if not brows_df.empty:
+        fig = px.bar(brows_df, x="name", y="conversion_rate", text="conversion_rate", labels={"name":"Browser","conversion_rate":"Conversion Rate (%)"})
+        fig.update_traces(texttemplate="%{text:.2f}%")
+        st.plotly_chart(fig, use_container_width=True)
+
+c5, c6 = st.columns(2, gap="large")
+
+with c5:
+    st.subheader("Traffic Type – Conversion Rate")
+    traf_params = build_params(target_graph='traffic')
+    traf_df = fetch_query(func_call_str % {'func_name': 'get_traffic_type_performance'}, traf_params)
+    if not traf_df.empty:
+        fig = px.bar(traf_df, y="name", x="conversion_rate", orientation="h", text="conversion_rate", labels={"name":"Traffic Type","conversion_rate":"Conversion Rate (%)"})
+        fig.update_traces(texttemplate="%{text:.2f}%")
+        st.plotly_chart(fig, use_container_width=True)
+
+with c6:
+    st.subheader("Region – Conversion Rate")
+    reg_params = build_params(target_graph='region')
+    reg_df = fetch_query(func_call_str % {'func_name': 'get_region_performance'}, reg_params)
+    if not reg_df.empty:
+        fig = px.bar(reg_df.head(15), x="name", y="conversion_rate", text="conversion_rate", labels={"name":"Region","conversion_rate":"Conversion Rate (%)"})
+        fig.update_traces(texttemplate="%{text:.2f}%")
+        st.plotly_chart(fig, use_container_width=True)
+
+st.subheader("OS Performance")
+os_params = build_params(target_graph='os')
+os_df = fetch_query(func_call_str % {'func_name': 'get_os_performance'}, os_params)
+if not os_df.empty:
+    fig = px.bar(os_df, x="name", y="conversion_rate", text="conversion_rate", labels={"name":"Operating System","conversion_rate":"Conversion Rate (%)"})
+    fig.update_traces(texttemplate="%{text:.2f}%")
+    st.plotly_chart(fig, use_container_width=True)
+
+st.subheader("Page Type Performance")
+page_params = build_params(target_graph='page_type')
+page_df = fetch_query(func_call_str % {'func_name': 'get_page_type_performance'}, page_params)
+if not page_df.empty:
+    fig = px.bar(page_df, x="page_type", y="conversion_rate", text="conversion_rate", labels={"page_type":"Page Type","conversion_rate":"Conversion Rate (%)"})
+    fig.update_traces(texttemplate="%{text:.2f}%")
+    st.plotly_chart(fig, use_container_width=True)
+
+st.subheader("Engagement Metrics Impact")
+eng_params = build_params(target_graph='engagement')
+eng_df = fetch_query(func_call_str % {'func_name': 'get_engagement_metrics_impact'}, eng_params)
+if not eng_df.empty:
+    eng_df_melted = eng_df.melt(id_vars='revenue', var_name='metric', value_name='average_value')
+    eng_df_melted['revenue'] = eng_df_melted['revenue'].map({True: 'Converted', False: 'Did Not Convert'})
+    
+    def format_eng_value(row):
+        if row['metric'] in ['avg_bounce_rate', 'avg_exit_rate']:
+            return f"{pd.to_numeric(row['average_value'], errors='coerce'):.2%}"
         else:
-            with c5:
-                st.caption("Average time spent (seconds) by outcome")
-                fig = px.bar(
-                    fpt, x="page_type", y="avg_seconds", color="revenue_label",
-                    barmode="group",
-                    labels={"page_type":"Page Type","avg_seconds":"Avg. Seconds","revenue_label":""},
-                    text="avg_seconds"
-                )
-                fig.update_traces(texttemplate="%{text:.2f}")
-                st.plotly_chart(fig, use_container_width=True)
+            return f"${pd.to_numeric(row['average_value'], errors='coerce'):.2f}"
+    eng_df_melted['text_value'] = eng_df_melted.apply(format_eng_value, axis=1)
 
-        with c6:
-            st.caption("Data preview & export")
-            if st.toggle("Show table", value=False):
-                st.dataframe(fpt.sort_values(["page_type","revenue_label"]))
-            st.download_button(
-                "⬇️ Download (Engagement data)",
-                data=fpt.sort_values(["page_type","revenue_label"]).to_csv(index=False).encode("utf-8"),
-                file_name="page_type_performance_filtered.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+    fig = px.bar(eng_df_melted, x="metric", y="average_value", color="revenue", barmode="group",
+                 text='text_value',
+                 labels={"metric":"Engagement Metric","average_value":"Average Value", "revenue":"Session Outcome"})
+    fig.update_traces(textposition='outside')
+    st.plotly_chart(fig, use_container_width=True)
+
+st.subheader("Special Day Effect")
+sp_params = build_params(target_graph='special_day')
+sp_df = fetch_query(func_call_str % {'func_name': 'get_special_day_effect'}, sp_params)
+if not sp_df.empty:
+    fig = px.bar(sp_df, x="specialday", y="conversion_rate", text="conversion_rate", labels={"specialday":"Special Day Score","conversion_rate":"Conversion Rate (%)"})
+    fig.update_traces(texttemplate="%{text:.2f}%")
+    st.plotly_chart(fig, use_container_width=True)
+
+st.caption("Data source: Logic executed in PostgreSQL Functions.")

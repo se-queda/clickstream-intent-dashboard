@@ -9,12 +9,23 @@ maintain, extend and re‑use.
 
 Overview
 
-The underlying dataset is a synthetic clickstream log with
-information about user sessions, visitor types, page views and
-conversions. The PostgreSQL layer cleans, aggregates and enriches
-this data using a series of stored functions and materialised
+The dashboard is built on the Online Shopper’s Purchasing Intention
+dataset from the UCI Machine Learning Repository (also available on
+Kaggle). This real clickstream dataset contains anonymised
+information about user sessions on an e‑commerce site, including
+aggregate page durations, visitor type, operating system, region,
+traffic source, special‑day flags and whether the session resulted in
+a purchase. We use PostgreSQL to clean, aggregate and enrich this
+data via a series of stored functions and materialised
 views. The Streamlit app then calls these functions to display
-interactive KPIs, charts and cohort analyses.
+interactive KPIs, charts and cohort analyses. You can learn more
+about the dataset here:
+
+UCI Repository entry – Online Shoppers Purchasing Intention Data Set:
+https://archive.ics.uci.edu/ml/datasets/Online+Shoppers+Purchasing+Intention+Dataset
+
+Kaggle version:
+https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store
 
 Highlights
 
@@ -74,13 +85,14 @@ duplicate element warnings.
 
 Database Setup
 
-Define schema and dimension tables – The sql/ directory
+Define schema and dimension tables – The sql/ 
 contains scripts for creating the schema (clickstream), base
 fact table and dimension tables (dim_browser, dim_os,
 dim_region, dim_traffic and others).
-
+Clean data - Cleans the cleackstream data by normalising columns names 
+and casting. its in the scripts folder
 Load data – Load your clickstream data into the base fact
-table. Scripts in sql/ can be adapted to your data source.
+table.Its also in the scripts folder. Scripts can be adapted to your data source.
 
 Create functions – SQL files under sql/Functions/ define
 functions such as get_kpis, get_weekday_vs_weekend and
@@ -155,4 +167,4 @@ into well‑defined modules. It also introduced new database
 optimisations (such as the full_data view), added cohort analyses,
 improved caching and removed duplicate code. The result is a
 cleaner, faster, more maintainable dashboard that still provides all
-of the original insights – plus a few new ones.
+of the original insights.

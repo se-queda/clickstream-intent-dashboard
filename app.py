@@ -106,12 +106,20 @@ def main() -> None:
     sp_df = execute_query(engine, func_call_template % {'func_name': 'get_special_day_effect'}, sp_params)
     charts.plot_special_day_effect(sp_df)
 
-    st.caption("Data source: Logic executed in PostgreSQL Functions.")
-    
-    cohort_params = build_params(filter_config, target_graph='cohort')
-    cohort_df = execute_query(engine, func_call_template % {'func_name': 'get_cohort_analysis'}, cohort_params)
-    st.subheader("Cohort Analysis")
-    charts.plot_cohort(cohort_df)
+    # Cohort-style views derived from SQL views
+    st.subheader("Monthly New vs Returning Visitors")
+    mnvr_df = execute_query(engine, "SELECT * FROM clickstream.monthly_new_vs_returning")
+    charts.plot_monthly_new_vs_returning(mnvr_df)
+
+    st.subheader("Weekday Conversion by Traffic")
+    wct_df = execute_query(engine, "SELECT * FROM clickstream.weekday_conversion_by_traffic")
+    charts.plot_weekday_conversion_by_traffic(wct_df)
+
+    st.subheader("Browser × OS Conversion Matrix")
+    bos_df = execute_query(engine, "SELECT * FROM clickstream.browser_os_conversion_matrix")
+    charts.plot_browser_os_matrix(bos_df)
+
+    st.caption("Data source: Logic executed in PostgreSQL Functions and Views.")
 
 
 if __name__ == "__main__":

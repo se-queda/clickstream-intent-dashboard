@@ -193,3 +193,105 @@ def plot_special_day_effect(df: pd.DataFrame) -> None:
     )
     fig.update_traces(texttemplate="%{text:.2f}%")
     st.plotly_chart(fig, use_container_width=True)
+
+
+# --- Cohort and cohort-like visualisations ---
+
+def plot_monthly_new_vs_returning(df: pd.DataFrame) -> None:
+    """Plot monthly new vs returning visitor conversion rates.
+
+    This expects columns ``month``, ``visitortype`` (with values
+    like ``New_Visitor``/``Returning_Visitor``) and ``conversion_rate``.
+    It renders a line chart with a separate trace per visitor type.
+    """
+    if df.empty:
+        st.info("No data for Monthly New vs Returning Visitors chart.")
+        return
+    fig = px.line(
+        df,
+        x="month",
+        y="conversion_rate",
+        color="visitortype",
+        markers=True,
+        labels={"conversion_rate": "Conversion Rate (%)", "month": "Month", "visitortype": "Visitor Type"},
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def plot_weekday_conversion_by_traffic(df: pd.DataFrame) -> None:
+    """Plot conversion rate by traffic type for weekday/weekend.
+
+    Expects columns ``weekend_label`` (e.g. ``Weekday``/``Weekend``),
+    ``traffic_name`` and ``conversion_rate``. Displays a grouped bar chart.
+    """
+    if df.empty:
+        st.info("No data for Weekday Conversion by Traffic chart.")
+        return
+    fig = px.bar(
+        df,
+        x="traffic_name",
+        y="conversion_rate",
+        color="weekend_label",
+        barmode="group",
+        text="conversion_rate",
+        labels={"traffic_name": "Traffic Type", "conversion_rate": "Conversion Rate (%)", "weekend_label": "Weekend"},
+    )
+    fig.update_traces(texttemplate="%{text:.2f}%")
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def plot_browser_os_matrix(df: pd.DataFrame) -> None:
+    """Plot a heatmap of conversion rate by browser and operating system.
+
+    Expects columns ``browser_name``, ``os_name`` and ``conversion_rate``.
+    A heatmap conveys the conversion rate for each browser/OS pair.
+    """
+    if df.empty:
+        st.info("No data for Browser × OS Conversion Matrix chart.")
+        return
+    # Pivot the DataFrame into a matrix form for heatmap
+    pivot = df.pivot(index="os_name", columns="browser_name", values="conversion_rate")
+    fig = px.imshow(
+        pivot,
+        labels=dict(x="Browser", y="Operating System", color="Conversion Rate (%)"),
+        aspect="auto",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# -------------------------------------------------------------------
+# Cohort analysis
+# -------------------------------------------------------------------
+
+def plot_cohort(df: pd.DataFrame) -> None:
+    """Plot cohort analysis for monthly new vs returning visitors.
+
+    This function expects a DataFrame with columns ``month``, ``visitortype`` and
+    ``conversion_rate``. It will draw a line chart comparing conversion
+    rates for new and returning visitors across months.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame returned from the ``clickstream.monthly_new_vs_returning`` view.
+    """
+    if df.empty:
+        st.info("No data for Cohort Analysis chart.")
+        return
+    # Ensure the month column is sorted chronologically if not already
+    try:
+        df_sorted = df.sort_values("month")
+    except Exception:
+        df_sorted = df
+    fig = px.line(
+        df_sorted,
+        x="month",
+        y="conversion_rate",
+        color="visitortype",
+        markers=True,
+        labels={
+            "month": "Month",
+            "conversion_rate": "Conversion Rate (%)",
+            "visitortype": "Visitor Type",
+        },
+    )
+    st.plotly_chart(fig, use_container_width=True)

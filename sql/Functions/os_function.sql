@@ -1,3 +1,4 @@
+-- Function for OS Performance
 DROP FUNCTION IF EXISTS clickstream.get_os_performance(TEXT[], TEXT[], BOOLEAN, INT[], INT[], INT[], INT[], TEXT[]);
 CREATE OR REPLACE FUNCTION clickstream.get_os_performance(
     p_months TEXT[] DEFAULT NULL, p_visitor_types TEXT[] DEFAULT NULL, p_weekend BOOLEAN DEFAULT NULL,
@@ -19,3 +20,5 @@ BEGIN
     GROUP BY s.os_name ORDER BY total_sessions DESC;
 END;
 $$ LANGUAGE plpgsql;
+
+

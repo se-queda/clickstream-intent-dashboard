@@ -1,3 +1,4 @@
+-- Function for Special Day Effect
 DROP FUNCTION IF EXISTS clickstream.get_special_day_effect(TEXT[], TEXT[], BOOLEAN, INT[], INT[], INT[], INT[], TEXT[]);
 CREATE OR REPLACE FUNCTION clickstream.get_special_day_effect(
     p_months TEXT[] DEFAULT NULL, p_visitor_types TEXT[] DEFAULT NULL, p_weekend BOOLEAN DEFAULT NULL,

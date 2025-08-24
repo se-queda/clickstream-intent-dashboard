@@ -1,3 +1,4 @@
+-- Function for KPIs (Executive Summary)
 DROP FUNCTION IF EXISTS clickstream.get_kpis(TEXT[], TEXT[], BOOLEAN, INT[], INT[], INT[], INT[], TEXT[]);
 CREATE OR REPLACE FUNCTION clickstream.get_kpis(
     p_months TEXT[] DEFAULT NULL, p_visitor_types TEXT[] DEFAULT NULL, p_weekend BOOLEAN DEFAULT NULL,

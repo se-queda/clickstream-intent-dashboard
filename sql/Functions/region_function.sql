@@ -1,3 +1,4 @@
+-- Function for Region Performance
 DROP FUNCTION IF EXISTS clickstream.get_region_performance(TEXT[], TEXT[], BOOLEAN, INT[], INT[], INT[], INT[], TEXT[]);
 CREATE OR REPLACE FUNCTION clickstream.get_region_performance(
     p_months TEXT[] DEFAULT NULL, p_visitor_types TEXT[] DEFAULT NULL, p_weekend BOOLEAN DEFAULT NULL,

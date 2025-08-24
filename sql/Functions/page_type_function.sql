@@ -1,3 +1,4 @@
+-- Function for Page Type Performance
 DROP FUNCTION IF EXISTS clickstream.get_page_type_performance(TEXT[], TEXT[], BOOLEAN, INT[], INT[], INT[], INT[], TEXT[]);
 CREATE OR REPLACE FUNCTION clickstream.get_page_type_performance(
     p_months TEXT[] DEFAULT NULL, p_visitor_types TEXT[] DEFAULT NULL, p_weekend BOOLEAN DEFAULT NULL,
@@ -19,3 +20,5 @@ BEGIN
     WHERE (p_months IS NULL OR s.month = ANY(p_months)) AND (p_visitor_types IS NULL OR s.visitortype = ANY(p_visitor_types)) AND (p_weekend IS NULL OR s.weekend = p_weekend) AND (p_browsers IS NULL OR s.browser = ANY(p_browsers)) AND (p_os IS NULL OR s.operatingsystems = ANY(p_os)) AND (p_regions IS NULL OR s.region = ANY(p_regions)) AND (p_traffics IS NULL OR s.traffictype = ANY(p_traffics)) AND (p_page_types IS NULL OR 'Product Related' = ANY(p_page_types));
 END;
 $$ LANGUAGE plpgsql;
+
+

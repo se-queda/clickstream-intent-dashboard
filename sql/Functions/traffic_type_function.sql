@@ -1,3 +1,4 @@
+-- Function for Traffic Type Performance
 DROP FUNCTION IF EXISTS clickstream.get_traffic_type_performance(TEXT[], TEXT[], BOOLEAN, INT[], INT[], INT[], INT[], TEXT[]);
 CREATE OR REPLACE FUNCTION clickstream.get_traffic_type_performance(
     p_months TEXT[] DEFAULT NULL, p_visitor_types TEXT[] DEFAULT NULL, p_weekend BOOLEAN DEFAULT NULL,

@@ -1,3 +1,4 @@
+-- Function for Monthwise Revenue
 DROP FUNCTION IF EXISTS clickstream.get_monthwise_revenue(TEXT[], TEXT[], BOOLEAN, INT[], INT[], INT[], INT[], TEXT[]);
 CREATE OR REPLACE FUNCTION clickstream.get_monthwise_revenue(
     p_months TEXT[] DEFAULT NULL, p_visitor_types TEXT[] DEFAULT NULL, p_weekend BOOLEAN DEFAULT NULL,

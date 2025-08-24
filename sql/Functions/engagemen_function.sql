@@ -1,3 +1,4 @@
+-- Function for Engagement Metrics Impact
 DROP FUNCTION IF EXISTS clickstream.get_engagement_metrics_impact(TEXT[], TEXT[], BOOLEAN, INT[], INT[], INT[], INT[], TEXT[]);
 CREATE OR REPLACE FUNCTION clickstream.get_engagement_metrics_impact(
     p_months TEXT[] DEFAULT NULL, p_visitor_types TEXT[] DEFAULT NULL, p_weekend BOOLEAN DEFAULT NULL,

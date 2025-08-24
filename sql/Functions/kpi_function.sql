@@ -10,7 +10,7 @@ BEGIN
         count(*)::BIGINT,
         sum(CASE WHEN s.revenue THEN 1 ELSE 0 END)::BIGINT,
         ROUND(100.0 * sum(CASE WHEN s.revenue THEN 1 ELSE 0 END) / NULLIF(count(*), 0), 2)
-    FROM clickstream.shopper_data s
+    FROM clickstream.full_data s
     WHERE (p_months IS NULL OR s.month = ANY(p_months)) AND (p_visitor_types IS NULL OR s.visitortype = ANY(p_visitor_types)) AND
           (p_weekend IS NULL OR s.weekend = p_weekend) AND (p_browsers IS NULL OR s.browser = ANY(p_browsers)) AND
           (p_os IS NULL OR s.operatingsystems = ANY(p_os)) AND (p_regions IS NULL OR s.region = ANY(p_regions)) AND

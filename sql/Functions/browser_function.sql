@@ -1,3 +1,4 @@
+-- Function for Browser Performance
 DROP FUNCTION IF EXISTS clickstream.get_browser_performance(TEXT[], TEXT[], BOOLEAN, INT[], INT[], INT[], INT[], TEXT[]);
 CREATE OR REPLACE FUNCTION clickstream.get_browser_performance(
     p_months TEXT[] DEFAULT NULL, p_visitor_types TEXT[] DEFAULT NULL, p_weekend BOOLEAN DEFAULT NULL,
@@ -7,15 +8,13 @@ RETURNS TABLE (name TEXT, total_sessions BIGINT, conversion_rate NUMERIC) AS $$
 BEGIN
     RETURN QUERY
     SELECT
-        b.name::TEXT,
+        s.browser_name,
         count(s.browser)::BIGINT AS total_sessions,
         ROUND(
             100.0 * sum(CASE WHEN s.revenue THEN 1 ELSE 0 END) / NULLIF(count(s.browser), 0), 2
         ) AS conversion_rate
     FROM
-        clickstream.shopper_data s
-    JOIN
-        clickstream.dim_browser b ON s.browser = b.id
+        clickstream.full_data s
     WHERE
         (p_months IS NULL OR s.month = ANY(p_months)) AND
         (p_visitor_types IS NULL OR s.visitortype = ANY(p_visitor_types)) AND
@@ -26,8 +25,9 @@ BEGIN
         (p_traffics IS NULL OR s.traffictype = ANY(p_traffics)) AND
         (p_page_types IS NULL OR (('Administrative' = ANY(p_page_types) AND s.administrative > 0) OR ('Informational' = ANY(p_page_types) AND s.informational > 0) OR ('Product Related' = ANY(p_page_types) AND s.productrelated > 0)))
     GROUP BY
-        b.name
+        s.browser_name
     ORDER BY
         total_sessions DESC;
 END;
 $$ LANGUAGE plpgsql;
+

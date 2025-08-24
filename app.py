@@ -50,14 +50,18 @@ def load_dims():
 
 @st.cache_data(show_spinner="Loading filter options...", ttl=300)
 def load_distincts():
-    """Loads distinct values for sidebar filters from the base data table."""
+    """Loads distinct values for sidebar filters from the new full_data view."""
     if engine is None: return {}
     opts = {}
     try:
         with engine.begin() as con:
-            for col in ["month", "visitortype", "weekend", "browser", "operatingsystems", "region", "traffictype"]:
-                q = text(f"SELECT DISTINCT {col} AS v FROM clickstream.shopper_data ORDER BY 1;")
-                opts[col] = pd.read_sql(q, con)["v"].tolist()
+            # Simplified to query the central view
+            opts['month'] = pd.read_sql(text("SELECT DISTINCT month FROM clickstream.full_data ORDER BY 1;"), con)['month'].tolist()
+            opts['visitortype'] = pd.read_sql(text("SELECT DISTINCT visitortype FROM clickstream.full_data ORDER BY 1;"), con)['visitortype'].tolist()
+            opts['browser'] = pd.read_sql(text("SELECT DISTINCT browser AS id, browser_name AS name FROM clickstream.full_data ORDER BY 1;"), con).set_index('id')['name'].to_dict()
+            opts['operatingsystems'] = pd.read_sql(text("SELECT DISTINCT operatingsystems AS id, os_name AS name FROM clickstream.full_data ORDER BY 1;"), con).set_index('id')['name'].to_dict()
+            opts['region'] = pd.read_sql(text("SELECT DISTINCT region AS id, region_name AS name FROM clickstream.full_data ORDER BY 1;"), con).set_index('id')['name'].to_dict()
+            opts['traffictype'] = pd.read_sql(text("SELECT DISTINCT traffictype AS id, traffic_name AS name FROM clickstream.full_data ORDER BY 1;"), con).set_index('id')['name'].to_dict()
     except Exception as e:
         st.error(f"Failed to load distinct filter values. Error: {e}")
     return opts
@@ -73,11 +77,12 @@ if not dims or not distincts:
     st.sidebar.error("Could not load filter data from the database.")
     st.stop()
 
-def pretty_multiselect(label, options, id_to_name, key=None):
+def pretty_multiselect(label, options_dict, key=None):
+    options = list(options_dict.keys())
     return st.multiselect(
         label,
         options,
-        format_func=lambda x: id_to_name.get(x, str(x)),
+        format_func=lambda x: options_dict.get(x, str(x)),
         key=key,
     )
 
@@ -97,17 +102,17 @@ with st.sidebar.expander("Date & Visitor Filters", expanded=True):
     filter_config['weekend']['scope'] = st.radio("Apply Weekend to:", ["All", "KPIs", "Graph"], key="weekend_scope", horizontal=True)
 
 with st.sidebar.expander("Technical Filters"):
-    filter_config['browser'] = {'value': pretty_multiselect("Browser", distincts.get("browser", []), dims["browser"], key="browser")}
+    filter_config['browser'] = {'value': pretty_multiselect("Browser", distincts.get("browser", {}), key="browser")}
     filter_config['browser']['scope'] = st.radio("Apply Browser to:", ["All", "KPIs", "Graph"], key="browser_scope", horizontal=True)
     st.markdown("---")
-    filter_config['os'] = {'value': pretty_multiselect("Operating System", distincts.get("operatingsystems", []), dims["os"], key="os")}
+    filter_config['os'] = {'value': pretty_multiselect("Operating System", distincts.get("operatingsystems", {}), key="os")}
     filter_config['os']['scope'] = st.radio("Apply OS to:", ["All", "KPIs", "Graph"], key="os_scope", horizontal=True)
 
 with st.sidebar.expander("Source & Content Filters"):
-    filter_config['region'] = {'value': pretty_multiselect("Region", distincts.get("region", []), dims["region"], key="region")}
+    filter_config['region'] = {'value': pretty_multiselect("Region", distincts.get("region", {}), key="region")}
     filter_config['region']['scope'] = st.radio("Apply Region to:", ["All", "KPIs", "Graph"], key="region_scope", horizontal=True)
     st.markdown("---")
-    filter_config['traffic'] = {'value': pretty_multiselect("Traffic Type", distincts.get("traffictype", []), dims["traffic"], key="traffic")}
+    filter_config['traffic'] = {'value': pretty_multiselect("Traffic Type", distincts.get("traffictype", {}), key="traffic")}
     filter_config['traffic']['scope'] = st.radio("Apply Traffic to:", ["All", "KPIs", "Graph"], key="traffic_scope", horizontal=True)
     st.markdown("---")
     filter_config['page_type'] = {'value': st.multiselect("Page Type", ["Administrative", "Informational", "Product Related"])}
@@ -142,7 +147,7 @@ def build_params(target_graph=None):
 # DATA LOADING FUNCTION
 # -----------------------------
 @st.cache_data(show_spinner="Loading data...", ttl=300)
-def fetch_query(query, query_params):
+def fetch_query(query, query_params=None):
     try:
         with engine.begin() as con:
             return pd.read_sql(text(query), con, params=query_params)
@@ -279,4 +284,47 @@ if not sp_df.empty:
     fig.update_traces(texttemplate="%{text:.2f}%")
     st.plotly_chart(fig, use_container_width=True)
 
-st.caption("Data source: Logic executed in PostgreSQL Functions.")
+st.divider()
+
+# -----------------------------
+# COHORT ANALYSIS SECTION
+# -----------------------------
+st.header("Cohort Analysis")
+cohort_view_choice = st.selectbox(
+    "Select a Cohort View",
+    ["Monthly New vs. Returning Visitors", "Weekday Conversion by Traffic", "Browser vs. OS Conversion Matrix"]
+)
+
+if cohort_view_choice == "Monthly New vs. Returning Visitors":
+    st.subheader("Monthly New vs. Returning Visitors")
+    df_cohort = fetch_query("SELECT * FROM clickstream.monthly_new_vs_returning;")
+    if not df_cohort.empty:
+        fig = px.line(df_cohort, x="month", y="conversion_rate", color="visitortype", markers=True,
+                      labels={"month": "Month", "conversion_rate": "Conversion Rate (%)", "visitortype": "Visitor Type"})
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(df_cohort, use_container_width=True)
+
+elif cohort_view_choice == "Weekday Conversion by Traffic":
+    st.subheader("Weekday Conversion by Traffic")
+    df_cohort = fetch_query("SELECT * FROM clickstream.weekday_conversion_by_traffic;")
+    if not df_cohort.empty:
+        fig = px.bar(df_cohort, x="traffic_name", y="conversion_rate", color="weekend_label", barmode="group",
+                     text="conversion_rate",
+                     labels={"traffic_name": "Traffic Source", "conversion_rate": "Conversion Rate (%)", "weekend_label": "Day Type"})
+        fig.update_traces(texttemplate="%{text:.2f}%")
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(df_cohort, use_container_width=True)
+
+elif cohort_view_choice == "Browser vs. OS Conversion Matrix":
+    st.subheader("Browser vs. OS Conversion Matrix")
+    df_cohort = fetch_query("SELECT * FROM clickstream.browser_os_conversion_matrix;")
+    if not df_cohort.empty:
+        # For better visualization, we can pivot the data to create a heatmap
+        pivot_df = df_cohort.pivot(index="os_name", columns="browser_name", values="conversion_rate").fillna(0)
+        fig = px.imshow(pivot_df, text_auto=".2f", aspect="auto",
+                        labels=dict(x="Browser", y="Operating System", color="Conversion Rate (%)"))
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(df_cohort, use_container_width=True)
+
+
+st.caption("Data source: Logic executed in PostgreSQL Functions and Views.")

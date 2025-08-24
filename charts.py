@@ -215,7 +215,9 @@ def plot_monthly_new_vs_returning(df: pd.DataFrame) -> None:
         markers=True,
         labels={"conversion_rate": "Conversion Rate (%)", "month": "Month", "visitortype": "Visitor Type"},
     )
-    st.plotly_chart(fig, use_container_width=True)
+    # Use an explicit key to avoid StreamlitDuplicateElementId errors when
+    # this chart is rendered multiple times within the same app session.
+    st.plotly_chart(fig, use_container_width=True, key="monthly_new_vs_returning_chart")
 
 
 def plot_weekday_conversion_by_traffic(df: pd.DataFrame) -> None:
@@ -237,7 +239,8 @@ def plot_weekday_conversion_by_traffic(df: pd.DataFrame) -> None:
         labels={"traffic_name": "Traffic Type", "conversion_rate": "Conversion Rate (%)", "weekend_label": "Weekend"},
     )
     fig.update_traces(texttemplate="%{text:.2f}%")
-    st.plotly_chart(fig, use_container_width=True)
+    # Provide a unique key to prevent duplicate element IDs.
+    st.plotly_chart(fig, use_container_width=True, key="weekday_conversion_by_traffic_chart")
 
 
 def plot_browser_os_matrix(df: pd.DataFrame) -> None:
@@ -256,7 +259,8 @@ def plot_browser_os_matrix(df: pd.DataFrame) -> None:
         labels=dict(x="Browser", y="Operating System", color="Conversion Rate (%)"),
         aspect="auto",
     )
-    st.plotly_chart(fig, use_container_width=True)
+    # Provide a unique key to prevent duplicate element IDs.
+    st.plotly_chart(fig, use_container_width=True, key="browser_os_matrix_chart")
 
 # -------------------------------------------------------------------
 # Cohort analysis

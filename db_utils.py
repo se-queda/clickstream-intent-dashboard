@@ -68,39 +68,67 @@ def load_dims(_engine) -> dict[str, dict[int, str]]:
 
 
 @st.cache_data(ttl=300, show_spinner="Loading filter options...")
-def load_distincts(_engine) -> dict[str, list]:
-    """Load distinct values for sidebar filters from the base data table.
+def load_distincts(_engine) -> dict[str, object]:
+    """
+    Load distinct values for sidebar filters.
+
+    In earlier versions of this app, the distinct values for filters were
+    obtained directly from the base ``clickstream.shopper_data`` table,
+    returning a dictionary of lists. After the introduction of the
+    consolidated ``full_data`` view (which denormalises several
+    dimensions), many of the filter keys now return a dictionary
+    mapping ID values to human–readable names rather than a simple
+    list. To accommodate both lists and dictionaries in the return
+    value, this function's return type has been broadened to
+    ``dict[str, object]`` so type checkers like Pylance do not
+    complain when assigning a ``dict`` where a ``list`` was expected.
 
     Parameters
     ----------
-    engine : sqlalchemy.engine.Engine | None
-        SQLAlchemy engine returned by ``get_engine()``.
+    _engine : sqlalchemy.engine.Engine | None
+        SQLAlchemy engine returned by :func:`get_engine`.
 
     Returns
     -------
-    dict[str, list]
-        A mapping from column name to the list of distinct values found in
-        the ``clickstream.shopper_data`` table. Errors are reported via
-        Streamlit and an empty mapping is returned on failure.
+    dict[str, object]
+        A mapping from filter key to either a list of distinct
+        primitive values or a dictionary mapping IDs to human readable
+        names. If the engine is ``None`` or an error occurs, an empty
+        mapping is returned.
     """
     if _engine is None:
         return {}
-    opts: dict[str, list] = {}
+    # We intentionally annotate opts with ``dict[str, object]`` to allow
+    # storing either lists or dictionaries for different filter keys.
+    opts: dict[str, object] = {}
     try:
         with _engine.begin() as con:
-            for col in [
-                "month",
-                "visitortype",
-                "weekend",
-                "browser",
-                "operatingsystems",
-                "region",
-                "traffictype",
-            ]:
-                q = text(f"SELECT DISTINCT {col} AS v FROM clickstream.shopper_data ORDER BY 1;")
-                opts[col] = pd.read_sql(q, con)["v"].tolist()
+            # When using the consolidated ``full_data`` view, certain
+            # columns return ID/name pairs. Others simply return a list
+            # of distinct values.
+            try:
+                opts['month'] = pd.read_sql(text("SELECT DISTINCT month FROM clickstream.full_data ORDER BY 1"), con)['month'].tolist()
+                opts['visitortype'] = pd.read_sql(text("SELECT DISTINCT visitortype FROM clickstream.full_data ORDER BY 1"), con)['visitortype'].tolist()
+                opts['browser'] = pd.read_sql(text("SELECT DISTINCT browser AS id, browser_name AS name FROM clickstream.full_data ORDER BY 1"), con).set_index('id')['name'].to_dict()
+                opts['operatingsystems'] = pd.read_sql(text("SELECT DISTINCT operatingsystems AS id, os_name AS name FROM clickstream.full_data ORDER BY 1"), con).set_index('id')['name'].to_dict()
+                opts['region'] = pd.read_sql(text("SELECT DISTINCT region AS id, region_name AS name FROM clickstream.full_data ORDER BY 1"), con).set_index('id')['name'].to_dict()
+                opts['traffictype'] = pd.read_sql(text("SELECT DISTINCT traffictype AS id, traffic_name AS name FROM clickstream.full_data ORDER BY 1"), con).set_index('id')['name'].to_dict()
+            except Exception:
+                # Fallback to shopper_data if full_data is not available
+                for col in [
+                    "month",
+                    "visitortype",
+                    "weekend",
+                    "browser",
+                    "operatingsystems",
+                    "region",
+                    "traffictype",
+                ]:
+                    q = text(f"SELECT DISTINCT {col} AS v FROM clickstream.shopper_data ORDER BY 1")
+                    opts[col] = pd.read_sql(q, con)["v"].tolist()
     except Exception as e:
         st.error(f"Failed to load distinct filter values. Error: {e}")
+        return {}
     return opts
 
 

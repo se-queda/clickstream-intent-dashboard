@@ -28,7 +28,7 @@ def main() -> None:
         st.stop()
 
     # Render sidebar filters and capture their configuration
-    filter_config = render_filters(dims, distincts)
+    filter_config = render_filters(dims, distincts) # pyright: ignore[reportArgumentType]
 
     # Build KPI parameters and fetch KPI data
     func_call_template = "SELECT * FROM clickstream.%(func_name)s(:p_months, :p_visitor_types, :p_weekend, :p_browsers, :p_os, :p_regions, :p_traffics, :p_page_types)"
@@ -106,8 +106,22 @@ def main() -> None:
     sp_df = execute_query(engine, func_call_template % {'func_name': 'get_special_day_effect'}, sp_params)
     charts.plot_special_day_effect(sp_df)
 
-    # Cohort Analysis section with selectable view and table display
+    # Cohort-style views derived from SQL views
+    st.subheader("Monthly New vs Returning Visitors")
+    mnvr_df = execute_query(engine, "SELECT * FROM clickstream.monthly_new_vs_returning")
+    charts.plot_monthly_new_vs_returning(mnvr_df)
+
+    st.subheader("Weekday Conversion by Traffic")
+    wct_df = execute_query(engine, "SELECT * FROM clickstream.weekday_conversion_by_traffic")
+    charts.plot_weekday_conversion_by_traffic(wct_df)
+
+    st.subheader("Browser × OS Conversion Matrix")
+    bos_df = execute_query(engine, "SELECT * FROM clickstream.browser_os_conversion_matrix")
+    charts.plot_browser_os_matrix(bos_df)
+
+    # Divider before cohort analysis
     st.divider()
+    # Cohort Analysis section with selectable view and table display
     st.header("Cohort Analysis")
     cohort_view_choice = st.selectbox(
         "Select a Cohort View",
@@ -117,9 +131,6 @@ def main() -> None:
             "Browser vs. OS Conversion Matrix",
         ],
     )
-    # Based on the selected view, query the corresponding view and plot it. Each view
-    # is displayed only once to avoid duplicate element keys. The underlying data
-    # is also shown in a table below the chart.
     if cohort_view_choice == "Monthly New vs. Returning Visitors":
         df_cohort = execute_query(engine, "SELECT * FROM clickstream.monthly_new_vs_returning")
         charts.plot_monthly_new_vs_returning(df_cohort)
